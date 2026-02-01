@@ -1,0 +1,104 @@
+{% load static %}
+{% load compress %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Neliela biblotēkas sistēma.">
+    <title>Issue Book - ABLŅ</title>
+    <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}">
+    <link rel="stylesheet" href="{% static 'Books/css/forms.css' %}">
+</head>
+</head>
+<body>
+    {% include 'navbar.html' %}
+
+    <div class="container">
+        <div class="card">
+            <div class="card-header">
+                <h1 class="card-title">Issue Book</h1>
+                <p class="card-subtitle">Set the return due date and issue the book to the user</p>
+            </div>
+
+            <div class="alert alert-info">
+                <strong>ℹ️ Information:</strong> Issuing will change the book copy status from "Reserved" to "Rented".
+            </div>
+
+            <!-- Reservation Info -->
+            <div class="info-section">
+                <h2 class="info-title">Reservation Information</h2>
+                <div class="info-grid">
+                    <div class="info-row">
+                        <span class="info-label">User:</span>
+                        <span class="info-value">{{ reservation.User.FirstName }} {{ reservation.User.LastName }}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Email:</span>
+                        <span class="info-value">{{ reservation.User.Email }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Book Info -->
+            <div class="info-section">
+                <h2 class="info-title">Book Information</h2>
+                <div class="info-grid">
+                    <div class="info-row">
+                        <span class="info-label">Title:</span>
+                        <span class="info-value">{{ reservation.Book.Title }}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Author:</span>
+                        <span class="info-value">{{ reservation.Book.Author.FirstName }} {{ reservation.Book.Author.LastName }}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Copy Number:</span>
+                        <span class="info-value">#{{ reserved_copy.CopyID }}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Reserved:</span>
+                        <span class="info-value">{{ reservation.ReservationTime|date:"M j, Y H:i" }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Issue Form -->
+            <form method="POST">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label for="due_date" class="form-label">Return Due Date *</label>
+                    <input 
+                        type="date" 
+                        id="due_date" 
+                        name="due_date" 
+                        class="form-input" 
+                        required
+                        min="{{ today|date:'Y-m-d' }}"
+                    >
+                    <p class="form-help">Set the date by which the book must be returned</p>
+                </div>
+
+                <div class="form-actions">
+                    <a href="{% url 'reservations' %}" class="btn btn-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary">Issue Book</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Set default due date to 14 days from now
+        const dueDateInput = document.getElementById('due_date');
+        const today = new Date();
+        const defaultDueDate = new Date(today);
+        defaultDueDate.setDate(defaultDueDate.getDate() + 14);
+        
+        const year = defaultDueDate.getFullYear();
+        const month = String(defaultDueDate.getMonth() + 1).padStart(2, '0');
+        const day = String(defaultDueDate.getDate()).padStart(2, '0');
+        
+        dueDateInput.value = `${year}-${month}-${day}`;
+    </script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+.navbar {
+    background-color: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.navbar-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 64px;
+}
+
+.navbar-brand .logo {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1f2937;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.navbar-brand .logo:hover {
+    color: #3b82f6;
+}
+
+.navbar-menu {
+    display: flex;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    gap: 2rem;
+}
+
+.navbar-item {
+    margin: 0;
+}
+
+.navbar-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    text-decoration: none;
+    color: #6b7280;
+    transition: color 0.2s;
+    padding: 0.5rem;
+}
+
+.navbar-link:hover {
+    color: #3b82f6;
+}
+
+.navbar-icon {
+    width: 24px;
+    height: 24px;
+}
+
+.navbar-link span {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+/* Active state - you can add this class dynamically based on current page */
+.navbar-link.active {
+    color: #3b82f6;
+}
+
+/* Mobile responsive */
+@media (max-width: 640px) {
+    .navbar-container {
+        padding: 0 0.75rem;
+    }
+
+    .navbar-menu {
+        gap: 1rem;
+    }
+
+    .navbar-link {
+        padding: 0.25rem;
+    }
+
+    .navbar-link span {
+        font-size: 0.75rem;
+    }
+
+    .navbar-icon {
+        width: 20px;
+        height: 20px;
+    }
+
+    .navbar-brand .logo {
+        font-size: 1.25rem;
+    }
+}

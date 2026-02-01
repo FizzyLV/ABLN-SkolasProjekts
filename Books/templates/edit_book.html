@@ -1,0 +1,196 @@
+{% load static %}
+{% load compress %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Neliela biblotēkas sistēma.">
+    <title>Edit Book - ABLŅ</title>
+    <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}">
+    <link rel="stylesheet" href="{% static 'Books/css/forms.css' %}">
+</head>
+</head>
+<body>
+    {% include 'navbar.html' %}
+
+    <div class="container">
+        <div class="page-header">
+            <a href="{% url 'home' %}" class="back-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+                Back to Library
+            </a>
+            <h1 class="page-title">Edit Book</h1>
+        </div>
+
+        <div class="form-container">
+            {% if errors.general %}
+            <div class="general-error">
+                {{ errors.general }}
+            </div>
+            {% endif %}
+
+            <form method="POST" action="{% url 'edit_book' book.BookID %}">
+                {% csrf_token %}
+
+                <div class="form-group">
+                    <label for="title" class="form-label required">Book Title</label>
+                    <input 
+                        type="text" 
+                        id="title" 
+                        name="title" 
+                        class="form-input {% if errors.title %}error{% endif %}"
+                        value="{{ book.Title }}"
+                        required
+                    >
+                    {% if errors.title %}
+                    <div class="form-error">{{ errors.title }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="isbn" class="form-label required">ISBN</label>
+                    <input 
+                        type="text" 
+                        id="isbn" 
+                        name="isbn" 
+                        class="form-input {% if errors.isbn %}error{% endif %}"
+                        value="{{ book.ISBN }}"
+                        maxlength="13"
+                        required
+                    >
+                    {% if errors.isbn %}
+                    <div class="form-error">{{ errors.isbn }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="author" class="form-label required">Author</label>
+                    <select 
+                        id="author" 
+                        name="author" 
+                        class="form-select {% if errors.author %}error{% endif %}"
+                        required
+                    >
+                        <option value="">Select an author</option>
+                        {% for author in authors %}
+                        <option value="{{ author.AuthorID }}" {% if book.Author.AuthorID == author.AuthorID %}selected{% endif %}>
+                            {{ author.FirstName }} {{ author.LastName }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    {% if errors.author %}
+                    <div class="form-error">{{ errors.author }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="genre" class="form-label required">Genre</label>
+                    <select 
+                        id="genre" 
+                        name="genre" 
+                        class="form-select {% if errors.genre %}error{% endif %}"
+                        required
+                    >
+                        <option value="">Select a genre</option>
+                        {% for genre in genres %}
+                        <option value="{{ genre.GenreID }}" {% if book.Genre.GenreID == genre.GenreID %}selected{% endif %}>
+                            {{ genre.Name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    {% if errors.genre %}
+                    <div class="form-error">{{ errors.genre }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="publication_date" class="form-label">Publication Date</label>
+                    <input 
+                        type="date" 
+                        id="publication_date" 
+                        name="publication_date" 
+                        class="form-input"
+                        value="{{ book.PublicationDate|date:'Y-m-d' }}"
+                    >
+                    <div class="form-help">Optional - leave blank if unknown</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="cover_url" class="form-label">Cover Image URL</label>
+                    <input 
+                        type="url" 
+                        id="cover_url" 
+                        name="cover_url" 
+                        class="form-input"
+                        value="{{ book.CoverImageURL }}"
+                        placeholder="https://example.com/cover.jpg"
+                    >
+                    <div class="form-help">Optional - URL to the book cover image</div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <a href="{% url 'home' %}" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+
+        <!-- Add Copies Section -->
+        <div class="form-container" style="margin-top: 1.5rem;">
+            <h2 class="section-title">Manage Copies</h2>
+            
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-label">Total Copies:</span>
+                    <span class="stat-value">{{ total_copies }}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Available:</span>
+                    <span class="stat-value">{{ available_copies }}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Reserved:</span>
+                    <span class="stat-value">{{ reserved_copies }}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Rented:</span>
+                    <span class="stat-value">{{ rented_copies }}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Damaged:</span>
+                    <span class="stat-value">{{ damaged_copies }}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Lost:</span>
+                    <span class="stat-value">{{ lost_copies }}</span>
+                </div>
+            </div>
+
+            <form method="POST" action="{% url 'add_copies' book.BookID %}" class="add-copies-form">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label for="num_copies" class="form-label">Number of Copies to Add</label>
+                    <input 
+                        type="number" 
+                        id="num_copies" 
+                        name="num_copies" 
+                        class="form-input"
+                        min="1"
+                        max="10"
+                        value="1"
+                        required
+                    >
+                </div>
+                <button type="submit" class="btn btn-primary">Add Copies</button>
+            </form>
+            
+            <div class="form-help">
+                Adding copies will renumber all existing copies to maintain sequential order.
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,365 @@
+{% load static %}
+{% load compress %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Neliela biblotēkas sistēma.">
+    <title>{% if is_admin %}Manage Reservations{% else %}My Reservations{% endif %} - ABLŅ</title>
+    <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}">
+    {% compress css %}
+    <link rel="stylesheet" href="{% static 'Books/css/reservations.css' %}">
+    {% endcompress %}
+</head>
+<body>
+    {% include 'navbar.html' %}
+
+    <div class="container">
+        <!-- Messages -->
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="message {{ message.tags }}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Header -->
+        <div class="page-header">
+            <h1 class="page-title">{% if is_admin %}Manage Reservations{% else %}My Reservations{% endif %}</h1>
+        </div>
+
+        <!-- Search and Filters -->
+        <div class="search-filters">
+            <form method="GET" action="{% url 'reservations' %}">
+                <div class="search-bar">
+                    <input 
+                        type="text" 
+                        name="search" 
+                        class="search-input" 
+                        placeholder="{% if is_admin %}Search by book title, user name, or email...{% else %}Search by book title or author...{% endif %}"
+                        value="{{ search_query }}"
+                    >
+                    <button type="submit" class="search-btn">Search</button>
+                </div>
+
+                <div class="filters">
+                    {% if is_admin %}
+                    <div class="filter-group">
+                        <label class="filter-label">Status</label>
+                        <select name="status" class="filter-select" onchange="this.form.submit()">
+                            <option value="">All Statuses</option>
+                            <option value="Active" {% if status_filter == "Active" %}selected{% endif %}>Active</option>
+                            <option value="Cancelled" {% if status_filter == "Cancelled" %}selected{% endif %}>Cancelled</option>
+                        </select>
+                    </div>
+                    {% else %}
+                    <div class="filter-group">
+                        <label class="filter-label">Status</label>
+                        <select name="status" class="filter-select" onchange="this.form.submit()">
+                            <option value="">All Statuses</option>
+                            <option value="Active" {% if status_filter == "Active" %}selected{% endif %}>Active</option>
+                            <option value="Completed" {% if status_filter == "Completed" %}selected{% endif %}>Completed</option>
+                            <option value="Cancelled" {% if status_filter == "Cancelled" %}selected{% endif %}>Cancelled</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label class="filter-label">Phase</label>
+                        <select name="phase" class="filter-select" onchange="this.form.submit()">
+                            <option value="">All Phases</option>
+                            <option value="Reserved" {% if phase_filter == "Reserved" %}selected{% endif %}>Reserved</option>
+                            <option value="Rented" {% if phase_filter == "Rented" %}selected{% endif %}>Rented</option>
+                            <option value="Returned" {% if phase_filter == "Returned" %}selected{% endif %}>Returned</option>
+                            <option value="Cancelled" {% if phase_filter == "Cancelled" %}selected{% endif %}>Cancelled</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label class="filter-label">Sort By</label>
+                        <select name="sort" class="filter-select" onchange="this.form.submit()">
+                            <option value="-reservation_time" {% if sort_by == "-reservation_time" %}selected{% endif %}>Newest First</option>
+                            <option value="reservation_time" {% if sort_by == "reservation_time" %}selected{% endif %}>Oldest First</option>
+                            <option value="title" {% if sort_by == "title" %}selected{% endif %}>Title (A-Z)</option>
+                            <option value="-title" {% if sort_by == "-title" %}selected{% endif %}>Title (Z-A)</option>
+                            <option value="expiry_time" {% if sort_by == "expiry_time" %}selected{% endif %}>Expiry (Soonest)</option>
+                            <option value="-expiry_time" {% if sort_by == "-expiry_time" %}selected{% endif %}>Expiry (Latest)</option>
+                            <option value="due_date" {% if sort_by == "due_date" %}selected{% endif %}>Due Date (Soonest)</option>
+                            <option value="-due_date" {% if sort_by == "-due_date" %}selected{% endif %}>Due Date (Latest)</option>
+                        </select>
+                    </div>
+                    {% endif %}
+
+                    {% if search_query or status_filter or phase_filter or sort_by != '-reservation_time' %}
+                    <a href="{% url 'reservations' %}" class="clear-filters">Clear Filters</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+
+        <!-- Reservations List -->
+        <div class="reservations-list">
+            {% if reservation_data %}
+                {% for item in reservation_data %}
+                <div class="reservation-item">
+                    <div class="reservation-main">
+                        <img 
+                            src="{{ item.reservation.Book.CoverImageURL|default:'https://via.placeholder.com/80x120?text=No+Cover' }}" 
+                            alt="{{ item.reservation.Book.Title }}" 
+                            class="book-cover"
+                            fetchpriority="high"
+                            onerror="this.src='https://via.placeholder.com/80x120?text=No+Cover'"
+                        >
+
+                        <div class="reservation-info">
+                            {% if is_admin %}
+                            <!-- Show user info for admin -->
+                            <div class="user-info">
+                                <div class="user-name">{{ item.reservation.User.FirstName }} {{ item.reservation.User.LastName }}</div>
+                                <div class="user-email">{{ item.reservation.User.Email }}</div>
+                                <div class="user-phone">{{ item.reservation.User.Phone }}</div>
+                            </div>
+                            {% endif %}
+
+                            <h2 class="book-title">{{ item.reservation.Book.Title }}</h2>
+                            
+                            <div class="book-meta">
+                                <div class="book-meta-item">
+                                    <span class="book-meta-label">Author:</span>
+                                    <span>{{ item.reservation.Book.Author.FirstName }} {{ item.reservation.Book.Author.LastName }}</span>
+                                </div>
+                                <div class="book-meta-item">
+                                    <span class="book-meta-label">Genre:</span>
+                                    <span>{{ item.reservation.Book.Genre.Name }}</span>
+                                </div>
+                                <div class="book-meta-item">
+                                    <span class="book-meta-label">Reserved:</span>
+                                    <span>{{ item.reservation.ReservationTime|date:"M j, Y H:i" }}</span>
+                                </div>
+                            </div>
+
+                            <div class="book-meta">
+                                <div class="book-meta-item">
+                                    <span class="book-meta-label">Status:</span>
+                                    {% if item.phase == 'Reserved' %}
+                                        <span class="status-badge reserved">Reserved</span>
+                                    {% elif item.phase == 'Rented' %}
+                                        {% if item.is_overdue %}
+                                            <span class="status-badge overdue">Overdue!</span>
+                                        {% else %}
+                                            <span class="status-badge rented">Rented</span>
+                                        {% endif %}
+                                    {% elif item.phase == 'Returned' %}
+                                        <span class="status-badge returned">Returned</span>
+                                    {% elif item.phase == 'Cancelled' %}
+                                        <span class="status-badge cancelled">Cancelled</span>
+                                    {% endif %}
+                                </div>
+                                {% if item.rental %}
+                                <div class="book-meta-item">
+                                    <span class="book-meta-label">Copy:</span>
+                                    <span>#{{ item.rental.Copy.CopyID }}</span>
+                                </div>
+                                {% endif %}
+                            </div>
+
+                            <!-- Phase Timeline -->
+                            <div class="phase-timeline">
+                                <div class="timeline-header">Progress</div>
+                                <div class="timeline-steps">
+                                    <!-- Step 1: Reserved -->
+                                    <div class="timeline-step">
+                                        <div class="step-indicator {% if item.phase == 'Reserved' %}active{% elif item.phase in 'Rented,Returned' %}completed{% elif item.phase == 'Cancelled' %}cancelled{% endif %}">
+                                            1
+                                        </div>
+                                        <div class="step-label">Reserved</div>
+                                        <div class="step-date">{{ item.reservation.ReservationTime|date:"M j, H:i" }}</div>
+                                    </div>
+
+                                    <!-- Step 2: Rented -->
+                                    <div class="timeline-step">
+                                        <div class="step-indicator {% if item.phase == 'Rented' %}active{% elif item.phase == 'Returned' %}completed{% endif %}">
+                                            2
+                                        </div>
+                                        <div class="step-label">Rented</div>
+                                        {% if item.rental %}
+                                        <div class="step-date">{{ item.rental.RentTime|date:"M j, H:i" }}</div>
+                                        {% endif %}
+                                    </div>
+
+                                    <!-- Step 3: Returned -->
+                                    <div class="timeline-step">
+                                        <div class="step-indicator {% if item.phase == 'Returned' %}completed{% endif %}">
+                                            3
+                                        </div>
+                                        <div class="step-label">Returned</div>
+                                        {% if item.return_record %}
+                                        <div class="step-date">{{ item.return_record.ReturnTime|date:"M j, H:i" }}</div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+
+                                <!-- Details based on phase -->
+                                <div class="reservation-details">
+                                    {% if item.phase == 'Reserved' %}
+                                        <div class="detail-item">
+                                            <span class="detail-label">Reservation expires:</span>
+                                            <span class="detail-value {% if item.is_expired %}warning{% endif %}">
+                                                {{ item.reservation.ExpiryTime|date:"M j, Y H:i" }}
+                                                {% if item.is_expired %} (Expired!){% endif %}
+                                            </span>
+                                        </div>
+                                    {% elif item.phase == 'Rented' %}
+                                        <div class="detail-item">
+                                            <span class="detail-label">Due date:</span>
+                                            <span class="detail-value {% if item.is_overdue %}overdue{% endif %}">
+                                                {{ item.rental.DueDate|date:"M j, Y H:i" }}
+                                                {% if item.is_overdue %} (Overdue!){% endif %}
+                                            </span>
+                                        </div>
+                                        <div class="detail-item">
+                                            <span class="detail-label">Rented on:</span>
+                                            <span class="detail-value">{{ item.rental.RentTime|date:"M j, Y H:i" }}</span>
+                                        </div>
+                                    {% elif item.phase == 'Returned' %}
+                                        <div class="detail-item">
+                                            <span class="detail-label">Rented:</span>
+                                            <span class="detail-value">{{ item.rental.RentTime|date:"M j, Y H:i" }}</span>
+                                        </div>
+                                        <div class="detail-item">
+                                            <span class="detail-label">Returned:</span>
+                                            <span class="detail-value">{{ item.return_record.ReturnTime|date:"M j, Y H:i" }}</span>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="reservation-actions">
+                            {% if not is_admin %}
+                                <!-- User actions -->
+                                {% if item.phase == 'Reserved' and item.reservation.Status == 'Active' %}
+                                    <form method="POST" action="{% url 'cancel_reservation' item.reservation.ReservationID %}">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-secondary">Cancel Reservation</button>
+                                    </form>
+                                {% endif %}
+                            {% else %}
+                                <!-- Admin actions -->
+                                <div class="admin-actions">
+                                    {% if item.phase == 'Reserved' and item.reservation.Status == 'Active' %}
+                                        <a href="{% url 'issue_book' item.reservation.ReservationID %}" class="btn btn-primary btn-small">Issue Book</a>
+                                        <button onclick="openEditModal({{ item.reservation.ReservationID }}, '{{ item.reservation.ExpiryTime|date:"Y-m-d" }}', 'expiry')" class="btn btn-warning btn-small">Edit Expiry Date</button>
+                                        <form method="POST" action="{% url 'delete_reservation' item.reservation.ReservationID %}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this reservation?');">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-danger btn-small">Delete</button>
+                                        </form>
+                                    {% elif item.phase == 'Rented' %}
+                                        <form method="POST" action="{% url 'process_return' item.rental.RentalID %}" style="display: inline;">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-success btn-small">Process Return</button>
+                                        </form>
+                                        <button onclick="openEditModal({{ item.reservation.ReservationID }}, '{{ item.rental.DueDate|date:"Y-m-d" }}', 'due_date')" class="btn btn-warning btn-small">Edit Due Date</button>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="no-results">
+                    <div class="no-results-icon">📚</div>
+                    <h2 class="no-results-title">No reservations found</h2>
+                    <p class="no-results-text">
+                        {% if is_admin %}
+                            No reservations match your search criteria.
+                        {% else %}
+                            You haven't reserved any books yet.
+                        {% endif %}
+                    </p>
+                    {% if not is_admin %}
+                    <a href="{% url 'home' %}" class="btn btn-primary btn-large">Browse Books</a>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if is_admin %}
+    <!-- Edit Dates Modal (Admin only) -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Edit Date</h2>
+            </div>
+            <form method="POST" id="editForm">
+                {% csrf_token %}
+                <input type="hidden" name="action" id="modalAction">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label" id="dateLabel">Date</label>
+                        <input type="date" name="expiry_time" id="expiryInput" class="form-input" style="display: none;">
+                        <input type="date" name="due_date" id="dueDateInput" class="form-input" style="display: none;">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" onclick="closeEditModal()" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Store URL pattern for update-reservation-dates
+        const updateDatesUrlPattern = "{% url 'update_reservation_dates' 0 %}".replace('/0/', '/{id}/');
+        
+        function openEditModal(reservationId, currentDate, type) {
+            const modal = document.getElementById('editModal');
+            const form = document.getElementById('editForm');
+            const modalTitle = document.getElementById('modalTitle');
+            const dateLabel = document.getElementById('dateLabel');
+            const modalAction = document.getElementById('modalAction');
+            const expiryInput = document.getElementById('expiryInput');
+            const dueDateInput = document.getElementById('dueDateInput');
+
+            if (type === 'expiry') {
+                modalTitle.textContent = 'Edit Reservation Expiry';
+                dateLabel.textContent = 'Expiry Date';
+                modalAction.value = 'update_expiry';
+                expiryInput.style.display = 'block';
+                dueDateInput.style.display = 'none';
+                expiryInput.value = currentDate;
+            } else {
+                modalTitle.textContent = 'Edit Due Date';
+                dateLabel.textContent = 'Due Date';
+                modalAction.value = 'update_due_date';
+                expiryInput.style.display = 'none';
+                dueDateInput.style.display = 'block';
+                dueDateInput.value = currentDate;
+            }
+
+            form.action = updateDatesUrlPattern.replace('{id}', reservationId);
+            modal.classList.add('active');
+        }
+
+        function closeEditModal() {
+            const modal = document.getElementById('editModal');
+            modal.classList.remove('active');
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('editModal');
+            if (event.target === modal) {
+                closeEditModal();
+            }
+        }
+    </script>
+    {% endif %}
+</body>
+</html>

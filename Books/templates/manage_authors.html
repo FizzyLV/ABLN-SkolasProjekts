@@ -1,0 +1,105 @@
+{% load static %}
+{% load compress %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Neliela biblotēkas sistēma.">
+    <title>Manage Authors - ABLŅ</title>
+    <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}">
+    <link rel="stylesheet" href="{% static 'Books/css/manage.css' %}">
+</head>
+<body>
+    {% include 'navbar.html' %}
+
+    <div class="container">
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="message {{ message.tags }}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="page-header">
+            <h1 class="page-title">Manage Authors</h1>
+            <a href="{% url 'home' %}" class="back-btn">Back to Library</a>
+        </div>
+
+        <!-- Add Author Section -->
+        <div class="add-section">
+            <h2 class="add-title">Add New Author</h2>
+            <form method="POST" action="{% url 'manage_authors' %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">First Name</label>
+                        <input type="text" name="first_name" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Last Name</label>
+                        <input type="text" name="last_name" class="form-input" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Author</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Authors List -->
+        <div class="authors-list">
+            <div class="list-header">
+                Authors ({{ authors.count }})
+            </div>
+            {% for author in authors %}
+            <div class="author-item" id="author-{{ author.AuthorID }}">
+                <!-- View Mode -->
+                <div class="author-info" id="info-{{ author.AuthorID }}">
+                    <span class="author-name">{{ author.FirstName }} {{ author.LastName }}</span>
+                    <span class="author-books">{{ author.book_set.count }} book(s)</span>
+                    <div class="author-actions">
+                        <button class="btn btn-secondary" onclick="showEditForm({{ author.AuthorID }})">Edit</button>
+                        <form method="POST" action="{% url 'manage_authors' %}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this author? This will fail if they have books.');">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="author_id" value="{{ author.AuthorID }}">
+                            <button type="submit" class="btn btn-danger">Delete</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Edit Mode -->
+                <form method="POST" action="{% url 'manage_authors' %}" class="edit-form" id="edit-{{ author.AuthorID }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="edit">
+                    <input type="hidden" name="author_id" value="{{ author.AuthorID }}">
+                    <input type="text" name="first_name" class="form-input" value="{{ author.FirstName }}" required>
+                    <input type="text" name="last_name" class="form-input" value="{{ author.LastName }}" required>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-secondary" onclick="hideEditForm({{ author.AuthorID }})">Cancel</button>
+                </form>
+            </div>
+            {% empty %}
+            <div class="author-item">
+                <span class="author-name">No authors yet. Add one above!</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <script>
+        function showEditForm(authorId) {
+            document.getElementById('info-' + authorId).classList.add('hidden');
+            document.getElementById('edit-' + authorId).classList.add('active');
+        }
+
+        function hideEditForm(authorId) {
+            document.getElementById('info-' + authorId).classList.remove('hidden');
+            document.getElementById('edit-' + authorId).classList.remove('active');
+        }
+    </script>
+</body>
+</html>

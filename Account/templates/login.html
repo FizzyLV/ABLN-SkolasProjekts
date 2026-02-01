@@ -1,0 +1,35 @@
+{% load static %}
+{% load compress %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Neliela biblotēkas sistēma.">
+    <title>Login</title>
+    <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}">
+    {% compress css %}
+    <link rel="stylesheet" href="{% static 'Account/css/login.css' %}">
+    {% endcompress %}
+</head>
+<body>
+    <div class="login">
+        <h2>Login</h2>
+        {% if errors %}
+        <div class="errors">
+            {% for field, msg in errors.items %}
+            <p class="error">{{ msg }}</p>
+            {% endfor %}
+        </div>
+        {% endif %}
+        <form method="POST" id="loginForm">
+            {% csrf_token %}
+            <input type="email" name="email" placeholder="Email" value="{{ data.email }}" required>
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit" disabled>Login</button>
+        </form>
+        <p>Don't have an account? <a href="{% url 'register' %}">Register</a></p>
+    </div>
+    <script src="{% static 'Account/js/login.js' %}"></script>
+</body>
+</html>

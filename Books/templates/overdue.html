@@ -1,0 +1,186 @@
+{% load static %}
+{% load compress %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Neliela biblotēkas sistēma.">
+    <title>Overdue - ABLŅ</title>
+    <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}">
+    {% compress css %}
+    <link rel="stylesheet" href="{% static 'Books/css/overdue.css' %}">
+    {% endcompress %}
+</head>
+<body>
+    {% include 'navbar.html' %}
+
+    <div class="container">
+        <!-- Messages -->
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="message {{ message.tags }}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Header -->
+        <div class="page-header">
+            <h1 class="page-title">Overdue</h1>
+        </div>
+
+        <!-- Summary cards -->
+        <div class="summary-banner">
+            <div class="summary-card red">
+                <span class="summary-label">Total Overdue</span>
+                <span class="summary-value">{{ total_overdue }}</span>
+            </div>
+            <div class="summary-card amber">
+                <span class="summary-label">Books Affected</span>
+                <span class="summary-value">{{ by_book|length }}</span>
+            </div>
+            <div class="summary-card blue">
+                <span class="summary-label">Users with Overdue</span>
+                <span class="summary-value">{{ by_user|length }}</span>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('by-book')" id="tab-by-book">By Book</button>
+            <button class="tab-btn" onclick="switchTab('by-user')" id="tab-by-user">By User</button>
+        </div>
+
+        <!-- Tab: By Book -->
+        <div class="tab-panel active" id="panel-by-book">
+            {% if by_book %}
+            <div class="overdue-list">
+                {% for group in by_book %}
+                    {% if not forloop.first %}
+                        <div class="group-separator"></div>
+                    {% endif %}
+
+                    <div class="group-header">
+                        <div class="group-header-left">
+                            <span class="group-title">{{ group.book.Title }}</span>
+                            <span class="group-subtitle">{{ group.book.Author.FirstName }} {{ group.book.Author.LastName }} · {{ group.book.Genre.Name }}</span>
+                        </div>
+                        <span class="overdue-count-badge">{{ group.items|length }} overdue</span>
+                    </div>
+
+                    {% for item in group.items %}
+                    <div class="overdue-item">
+                        <div class="item-left">
+                            <span class="item-copy-label">
+                                {% if item.type == 'rental' %}
+                                    Copy #{{ item.copy.CopyID }}
+                                    <span class="muted">— {{ item.user.FirstName }} {{ item.user.LastName }} ({{ item.user.Email }})</span>
+                                {% else %}
+                                    Reservation
+                                    <span class="muted">— {{ item.user.FirstName }} {{ item.user.LastName }} ({{ item.user.Email }})</span>
+                                {% endif %}
+                            </span>
+                            <span class="item-meta">
+                                {% if item.type == 'rental' %}
+                                    Due <span class="overdue-highlight">{{ item.overdue_since|date:"d M Y" }}</span>
+                                {% else %}
+                                    Expired <span class="overdue-highlight">{{ item.overdue_since|date:"d M Y" }}</span>
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="item-right">
+                            <span class="type-badge {{ item.type }}">{{ item.type }}</span>
+                            {% if item.reservation %}
+                                <a href="{% url 'reservations' %}?search={{ group.book.Title|urlencode }}" class="btn btn-primary btn-small">View Details</a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="overdue-list">
+                <div class="no-results">
+                    <p>No overdue books.</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Tab: By User -->
+        <div class="tab-panel" id="panel-by-user">
+            {% if by_user %}
+            <div class="overdue-list">
+                {% for group in by_user %}
+                    {% if not forloop.first %}
+                        <div class="group-separator"></div>
+                    {% endif %}
+
+                    <div class="group-header">
+                        <div class="group-header-left">
+                            <span class="group-title">{{ group.user.FirstName }} {{ group.user.LastName }}</span>
+                            <span class="user-phone">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                                </svg>
+                                {{ group.user.Phone }}
+                            </span>
+                        </div>
+                        <span class="overdue-count-badge">{{ group.items|length }} overdue</span>
+                    </div>
+
+                    {% for item in group.items %}
+                    <div class="overdue-item">
+                        <div class="item-left">
+                            <span class="item-copy-label">
+                                {{ item.book.Title }}
+                                {% if item.type == 'rental' %}
+                                    <span class="muted">— Copy #{{ item.copy.CopyID }}</span>
+                                {% endif %}
+                            </span>
+                            <span class="item-meta">
+                                {% if item.type == 'rental' %}
+                                    Due <span class="overdue-highlight">{{ item.overdue_since|date:"d M Y" }}</span>
+                                {% else %}
+                                    Expired <span class="overdue-highlight">{{ item.overdue_since|date:"d M Y" }}</span>
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="item-right">
+                            <span class="type-badge {{ item.type }}">{{ item.type }}</span>
+                            {% if item.reservation %}
+                                <a href="{% url 'reservations' %}?search={{ item.book.Title|urlencode }}" class="btn btn-primary btn-small">View Details</a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="overdue-list">
+                <div class="no-results">
+                    <p>No users with overdue items.</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-panel').forEach(function(panel) {
+                panel.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(function(btn) {
+                btn.classList.remove('active');
+            });
+
+            document.getElementById('panel-' + tabName).classList.add('active');
+            document.getElementById('tab-' + tabName).classList.add('active');
+        }
+    </script>
+</body>
+</html>

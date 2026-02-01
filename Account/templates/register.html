@@ -1,0 +1,42 @@
+{% load static %}
+{% load compress %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Neliela biblotēkas sistēma.">
+    <title>Create Account</title>
+    <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}">
+    {% compress css %}
+    <link rel="stylesheet" href="{% static 'Account/css/register.css' %}">
+    {% endcompress %}
+</head>
+<body>
+    <div class="register">
+        <h2>Create Account</h2>
+        {% if errors %}
+        <div class="errors">
+            {% for field, msg in errors.items %}
+            <p>{{ msg }}</p>
+            {% endfor %}
+        </div>
+        {% endif %}
+        <form method="POST" id="registerForm">
+            {% csrf_token %}
+            <div class="name-fields">
+                <input type="text" name="first_name" placeholder="First Name" value="{{ data.first_name }}" required>
+                <input type="text" name="last_name" placeholder="Last Name" value="{{ data.last_name }}" required>
+            </div>
+            <input type="email" name="email" placeholder="Email" value="{{ data.email }}" required>
+            <input type="tel" name="phone" placeholder="Phone" value="{{ data.phone }}" required>
+            <input type="password" name="password" placeholder="Password" required>
+            <input type="password" name="confirm_password" placeholder="Confirm Password" required>
+            <div id="error">Passwords do not match</div>
+            <button type="submit" id="registerBtn" disabled>Register</button>
+        </form>
+        <p>Already have an account? <a href="{% url 'login' %}">Login</a></p>
+    </div>
+    <script src="{% static 'Account/js/register.js' %}"></script>
+</body>
+</html>

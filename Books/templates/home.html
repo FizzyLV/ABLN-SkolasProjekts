@@ -1,0 +1,269 @@
+{% load static %}
+{% load compress %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Neliela biblotēkas sistēma.">
+    <title>Home - ABLŅ</title>
+    <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}">
+    {% compress css %}
+    <link rel="stylesheet" href="{% static 'Books/css/home.css' %}">
+    {% endcompress %}
+</head>
+<body>
+    {% include 'navbar.html' %}
+
+    <div class="container">
+        <!-- Messages -->
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <div class="message {{ message.tags }}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Header -->
+        <div class="page-header">
+            <h1 class="page-title">Home</h1>
+            {% if is_admin %}
+            <div class="header-actions">
+                <a href="{% url 'add_book' %}" class="add-book-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Add Book
+                </a>
+                <a href="{% url 'manage_authors' %}" class="manage-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    Authors
+                </a>
+                <a href="{% url 'manage_genres' %}" class="manage-btn secondary">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                    </svg>
+                    Genres
+                </a>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Search and Filters -->
+        <div class="search-filters">
+            <form method="GET" action="{% url 'home' %}">
+                <div class="search-bar">
+                    <input 
+                        type="text" 
+                        name="search" 
+                        class="search-input" 
+                        placeholder="Search by title, author, ISBN, or genre..."
+                        value="{{ search_query }}"
+                    >
+                    <button type="submit" class="search-btn">Search</button>
+                </div>
+
+                <div class="filters">
+                    <div class="filter-group">
+                        <label class="filter-label">Author</label>
+                        <select name="author" class="filter-select" onchange="this.form.submit()">
+                            <option value="">All Authors</option>
+                            {% for author in all_authors %}
+                            <option value="{{ author.AuthorID }}" {% if author_filter == author.AuthorID|stringformat:"s" %}selected{% endif %}>
+                                {{ author.FirstName }} {{ author.LastName }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
+                        <label class="filter-label">Genre</label>
+                        <select name="genre" class="filter-select" onchange="this.form.submit()">
+                            <option value="">All Genres</option>
+                            {% for genre in genres %}
+                            <option value="{{ genre.GenreID }}" {% if genre_filter == genre.GenreID|stringformat:"s" %}selected{% endif %}>
+                                {{ genre.Name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
+                        <label class="filter-label">Availability</label>
+                        <select name="availability" class="filter-select" onchange="this.form.submit()">
+                            <option value="">All Books</option>
+                            <option value="available" {% if availability_filter == "available" %}selected{% endif %}>Available</option>
+                            <option value="unavailable" {% if availability_filter == "unavailable" %}selected{% endif %}>Unavailable</option>
+                        </select>
+                    </div>
+
+                    {% if search_query or genre_filter or availability_filter or author_filter %}
+                    <a href="{% url 'home' %}" class="clear-filters">Clear Filters</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+
+        <!-- Books List -->
+        <div class="books-list">
+            {% if books %}
+                {% for book in books %}
+                <div class="book-item">
+                    <div class="book-main">
+                        <img 
+                            src="{{ book.CoverImageURL|default:'https://via.placeholder.com/80x120?text=No+Cover' }}" 
+                            alt="{{ book.Title }}" 
+                            class="book-cover"
+                            fetchpriority="high"
+                            onerror="this.src='https://via.placeholder.com/80x120?text=No+Cover'"
+                        >
+
+                        <div class="book-info">
+                            <h2 class="book-title">{{ book.Title }}</h2>
+                            
+                            <div class="book-meta">
+                                <div class="book-meta-item">
+                                    <span class="book-meta-label">Author:</span>
+                                    <span>{{ book.Author.FirstName }} {{ book.Author.LastName }}</span>
+                                </div>
+                                <div class="book-meta-item">
+                                    <span class="book-meta-label">Genre:</span>
+                                    <span>{{ book.Genre.Name }}</span>
+                                </div>
+                                {% if book.PublicationDate %}
+                                <div class="book-meta-item">
+                                    <span class="book-meta-label">Published:</span>
+                                    <span>{{ book.PublicationDate|date:"Y" }}</span>
+                                </div>
+                                {% endif %}
+                                <div class="book-meta-item">
+                                    <span class="book-meta-label">ISBN:</span>
+                                    <span>{{ book.ISBN }}</span>
+                                </div>
+                            </div>
+
+                            <div class="book-meta-item">
+                                <span class="book-meta-label">Copies:</span>
+                                <span>{{ book.available_copies }} available / {{ book.total_copies }} total</span>
+                                {% if book.available_copies > 0 %}
+                                    <span class="availability-badge available">Available</span>
+                                {% elif book.available_copies == 0 and book.total_copies > 0 %}
+                                    <span class="availability-badge unavailable">All Rented</span>
+                                {% else %}
+                                    <span class="availability-badge unavailable">No Copies</span>
+                                {% endif %}
+                                
+                                {% if not is_admin and book.BookID in user_reservations %}
+                                    {% for book_id, data in user_reservation_data.items %}
+                                        {% if book_id == book.BookID %}
+                                            {% if data.phase == 'Reserved' %}
+                                                <span class="status-badge reserved">You: Reserved</span>
+                                            {% elif data.phase == 'Rented' %}
+                                                <span class="status-badge rented">You: Rented</span>
+                                            {% elif data.phase == 'Returned' %}
+                                                <span class="status-badge returned">You: Returned</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+
+                            {% if is_admin %}
+                            <!-- Admin: Show copies dropdown -->
+                            <div class="copies-section">
+                                <button 
+                                    class="copies-toggle" 
+                                    onclick="toggleCopies('copies-{{ book.BookID }}')"
+                                    type="button"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                    </svg>
+                                    View Physical Copies ({{ book.total_copies }})
+                                </button>
+                                
+                                <div id="copies-{{ book.BookID }}" class="copies-list hidden">
+                                    {% for copy in book.bookcopy_set.all %}
+                                    <div class="copy-item">
+                                        <div class="copy-info">
+                                            <span class="copy-id">Copy #{{ copy.CopyID }}</span>
+                                            <span class="status-badge {{ copy.Status|lower }}">{{ copy.Status }}</span>
+                                        </div>
+                                        
+                                        <div class="copy-actions">
+                                            {% if copy.Status == 'Reserved' or copy.Status == 'Rented' %}
+                                                <a href="{% url 'reservations' %}?search={{ book.Title|urlencode }}" class="btn btn-info btn-small">View Reservation</a>
+                                            {% else %}
+                                                <form method="POST" action="{% url 'edit_copy' copy.CopyID %}" class="copy-status-form">
+                                                    {% csrf_token %}
+                                                    <select name="status" class="copy-status-select">
+                                                        <option value="Available" {% if copy.Status == "Available" %}selected{% endif %}>Available</option>
+                                                        <option value="Damaged" {% if copy.Status == "Damaged" %}selected{% endif %}>Damaged</option>
+                                                        <option value="Lost" {% if copy.Status == "Lost" %}selected{% endif %}>Lost</option>
+                                                    </select>
+                                                    <button type="submit" class="btn btn-secondary btn-small">Update</button>
+                                                </form>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="book-actions">
+                            {% if not is_admin %}
+                                <!-- User: Reserve button -->
+                                {% if book.BookID in user_reservations %}
+                                    <a href="{% url 'reservations' %}" class="btn btn-primary">View Details</a>
+                                {% else %}
+                                    {% if book.available_copies > 0 %}
+                                        <form method="POST" action="{% url 'reserve_book' book.BookID %}">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-primary">Reserve</button>
+                                        </form>
+                                    {% else %}
+                                        <button class="btn btn-secondary" disabled>Unavailable</button>
+                                    {% endif %}
+                                {% endif %}
+                            {% else %}
+                                <!-- Admin: Edit and Delete buttons -->
+                                <div class="admin-controls">
+                                    <a href="{% url 'edit_book' book.BookID %}" class="btn btn-secondary btn-small">Edit Book</a>
+                                    <form method="POST" action="{% url 'delete_book' book.BookID %}" onsubmit="return confirm('Are you sure you want to delete this book and all its copies?');">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-danger btn-small">Delete</button>
+                                    </form>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="no-results">
+                    <p>No books found matching your search criteria.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        function toggleCopies(id) {
+            const element = document.getElementById(id);
+            element.classList.toggle('hidden');
+        }
+    </script>
+</body>
+</html>
