@@ -1,8 +1,9 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.db.models import Q, Count, Case, When, IntegerField
+from django.db.models import Q, Count, Case, When, IntegerField, Prefetch
 from django.utils import timezone
-from datetime import timedelta
+from django.db import transaction
+from datetime import timedelta, datetime
 from Books.models import Book, BookCopy, Author, Genre, Reservation, Rental, Return
 from Account.decorators import login_required, admin_required
 
@@ -14,7 +15,7 @@ def home(request):
     from Account.models import Account
     
     try:
-        account = Account.objects.get(UserID=user_id)
+        account = Account.objects.select_related('Role').get(UserID=user_id)
         is_admin = account.Role.RoleID == 2 if account.Role else False
     except Account.DoesNotExist:
         request.session.flush()
@@ -26,7 +27,7 @@ def home(request):
     author_filter = request.GET.get('author', '')
     availability_filter = request.GET.get('availability', '')
     
-    # Start with all books
+    # Start with all books - use select_related to avoid N+1 queries
     books = Book.objects.select_related('Author', 'Genre').annotate(
         total_copies=Count('bookcopy'),
         available_copies=Count(
@@ -61,33 +62,60 @@ def home(request):
     elif availability_filter == 'unavailable':
         books = books.filter(available_copies=0)
     
-    # Get all authors and genres for filter dropdowns
-    all_authors = Author.objects.all().order_by('LastName', 'FirstName')
-    genres = Genre.objects.all().order_by('Name')
+    # Get all authors and genres for filter dropdowns (only load what we need)
+    all_authors = Author.objects.only('AuthorID', 'FirstName', 'LastName').order_by('LastName', 'FirstName')
+    genres = Genre.objects.only('GenreID', 'Name').order_by('Name')
     
     # Check user's active reservations and get their status
     user_reservations = []
     user_reservation_data = {}
     if not is_admin:
-        user_reservations = list(
-            Reservation.objects.filter(
+        # Get user's active reservations
+        user_reservations_qs = Reservation.objects.filter(
+            User=account,
+            Status='Active'
+        ).select_related('Book')
+        
+        user_reservations = [r.Book_id for r in user_reservations_qs]
+        
+        # Get all rentals for this user in one query
+        user_book_ids = [r.Book_id for r in user_reservations_qs]
+        if user_book_ids:
+            user_rentals = Rental.objects.filter(
                 User=account,
-                Status='Active'
-            ).values_list('Book_id', flat=True)
-        )
+                Copy__Book_id__in=user_book_ids
+            ).select_related('Copy', 'Copy__Book').prefetch_related(
+                Prefetch(
+                    'return_set',
+                    queryset=Return.objects.all()
+                )
+            )
+            
+            # Build a lookup map: book_id -> list of rentals
+            rentals_by_book = {}
+            for rental in user_rentals:
+                book_id = rental.Copy.Book_id
+                if book_id not in rentals_by_book:
+                    rentals_by_book[book_id] = []
+                rentals_by_book[book_id].append(rental)
+        else:
+            rentals_by_book = {}
         
         # Get detailed reservation data for the user
-        for reservation in Reservation.objects.filter(User=account, Status='Active').select_related('Book'):
+        for reservation in user_reservations_qs:
             # Find if this reservation has a rental
-            rental = Rental.objects.filter(
-                User=account,
-                Copy__Book=reservation.Book,
-                RentTime__gte=reservation.ReservationTime
-            ).select_related('Copy').order_by('RentTime').first()
+            rental = None
+            book_rentals = rentals_by_book.get(reservation.Book_id, [])
+            for r in book_rentals:
+                if r.RentTime >= reservation.ReservationTime:
+                    rental = r
+                    break
             
             return_record = None
             if rental:
-                return_record = Return.objects.filter(Rental=rental).first()
+                # Already prefetched
+                return_records = list(rental.return_set.all())
+                return_record = return_records[0] if return_records else None
             
             # Determine phase
             if return_record:
@@ -121,6 +149,7 @@ def home(request):
 
 
 @login_required
+@transaction.atomic
 def reserve_book(request, book_id):
     """Handle book reservation for users"""
     user_id = request.session.get('user_id')
@@ -134,8 +163,12 @@ def reserve_book(request, book_id):
     
     book = get_object_or_404(Book, BookID=book_id)
     
-    # Check if book has available copies
-    available_copy = BookCopy.objects.filter(Book=book, Status='Available').first()
+    # Use select_for_update to lock the row and prevent race conditions
+    # This ensures only one user can reserve a specific copy at a time
+    available_copy = BookCopy.objects.select_for_update().filter(
+        Book=book, 
+        Status='Available'
+    ).first()
     
     if not available_copy:
         messages.error(request, 'This book is not available for reservation.')
@@ -147,7 +180,7 @@ def reserve_book(request, book_id):
         User=account,
         Book=book,
         Status='Active'  # Only check for Active reservations
-    ).first()
+    ).exists()  # Use exists() instead of first() for better performance
     
     if existing_reservation:
         messages.warning(request, 'You already have an active reservation for this book.')
@@ -163,7 +196,7 @@ def reserve_book(request, book_id):
         Status='Active'
     )
     
-    # Mark the copy as Reserved
+    # Mark the copy as Reserved (within the same transaction)
     available_copy.Status = 'Reserved'
     available_copy.save()
     
@@ -172,6 +205,7 @@ def reserve_book(request, book_id):
 
 
 @login_required
+@transaction.atomic
 def cancel_reservation(request, reservation_id):
     """Cancel a reservation"""
     user_id = request.session.get('user_id')
@@ -185,9 +219,8 @@ def cancel_reservation(request, reservation_id):
     
     reservation = get_object_or_404(Reservation, ReservationID=reservation_id, User=account)
     
-    # Free up a reserved copy for this book
-    # Find one reserved copy and make it available again
-    reserved_copy = BookCopy.objects.filter(
+    # Use select_for_update to prevent race conditions
+    reserved_copy = BookCopy.objects.select_for_update().filter(
         Book=reservation.Book, 
         Status='Reserved'
     ).first()
@@ -233,33 +266,37 @@ def add_book(request):
             num_copies = int(num_copies)
             if num_copies < 1:
                 errors['num_copies'] = 'Number of copies must be at least 1.'
+            elif num_copies > 100:  # Add reasonable upper limit
+                errors['num_copies'] = 'Number of copies cannot exceed 100.'
         except ValueError:
             errors['num_copies'] = 'Invalid number of copies.'
         
         if not errors:
             try:
-                # Create the book
-                book = Book.objects.create(
-                    Title=title,
-                    ISBN=isbn,
-                    Author_id=author_id,
-                    Genre_id=genre_id,
-                    PublicationDate=publication_date if publication_date else None,
-                    CoverImageURL=cover_url if cover_url else None
-                )
+                # Use atomic transaction to ensure book and copies are created together
+                with transaction.atomic():
+                    # Create the book
+                    book = Book.objects.create(
+                        Title=title,
+                        ISBN=isbn,
+                        Author_id=author_id,
+                        Genre_id=genre_id,
+                        PublicationDate=publication_date if publication_date else None,
+                        CoverImageURL=cover_url if cover_url else None
+                    )
+                    
+                    # Create book copies - use bulk_create for better performance
+                    copies = [BookCopy(Book=book, Status='Available') for _ in range(num_copies)]
+                    BookCopy.objects.bulk_create(copies)
                 
-                # Create book copies
-                for _ in range(num_copies):
-                    BookCopy.objects.create(Book=book, Status='Available')
-                
-                messages.success(request, f'Successfully added "{title}" with {num_copies} copies!')
+                messages.success(request, f'Successfully added "{title}" with {num_copies} cop{"y" if num_copies == 1 else "ies"}!')
                 return redirect('home')
             except Exception as e:
                 errors['general'] = f'An error occurred: {str(e)}'
     
-    # Get authors and genres for dropdowns
-    authors = Author.objects.all().order_by('LastName', 'FirstName')
-    genres = Genre.objects.all().order_by('Name')
+    # Get authors and genres for dropdowns (only load what we need)
+    authors = Author.objects.only('AuthorID', 'FirstName', 'LastName').order_by('LastName', 'FirstName')
+    genres = Genre.objects.only('GenreID', 'Name').order_by('Name')
     
     context = {
         'authors': authors,
@@ -274,7 +311,7 @@ def add_book(request):
 @admin_required
 def edit_book(request, book_id):
     """Admin page to edit a book"""
-    book = get_object_or_404(Book, BookID=book_id)
+    book = get_object_or_404(Book.objects.select_related('Author', 'Genre'), BookID=book_id)
     
     if request.method == 'POST':
         title = request.POST.get('title', '').strip()
@@ -312,35 +349,37 @@ def edit_book(request, book_id):
             except Exception as e:
                 errors['general'] = f'An error occurred: {str(e)}'
     
-    authors = Author.objects.all().order_by('LastName', 'FirstName')
-    genres = Genre.objects.all().order_by('Name')
+    authors = Author.objects.only('AuthorID', 'FirstName', 'LastName').order_by('LastName', 'FirstName')
+    genres = Genre.objects.only('GenreID', 'Name').order_by('Name')
     
-    # Calculate copy statistics
-    copies = book.bookcopy_set.all()
-    total_copies = copies.count()
-    available_copies = copies.filter(Status='Available').count()
-    reserved_copies = copies.filter(Status='Reserved').count()
-    rented_copies = copies.filter(Status='Rented').count()
-    damaged_copies = copies.filter(Status='Damaged').count()
-    lost_copies = copies.filter(Status='Lost').count()
+    # Calculate copy statistics - use aggregate for better performance
+    copy_stats = book.bookcopy_set.aggregate(
+        total=Count('CopyID'),
+        available=Count(Case(When(Status='Available', then=1), output_field=IntegerField())),
+        reserved=Count(Case(When(Status='Reserved', then=1), output_field=IntegerField())),
+        rented=Count(Case(When(Status='Rented', then=1), output_field=IntegerField())),
+        damaged=Count(Case(When(Status='Damaged', then=1), output_field=IntegerField())),
+        lost=Count(Case(When(Status='Lost', then=1), output_field=IntegerField())),
+    )
     
     context = {
         'book': book,
         'authors': authors,
         'genres': genres,
         'errors': locals().get('errors', {}),
-        'total_copies': total_copies,
-        'available_copies': available_copies,
-        'reserved_copies': reserved_copies,
-        'rented_copies': rented_copies,
-        'damaged_copies': damaged_copies,
-        'lost_copies': lost_copies,
+        'total_copies': copy_stats['total'],
+        'available_copies': copy_stats['available'],
+        'reserved_copies': copy_stats['reserved'],
+        'rented_copies': copy_stats['rented'],
+        'damaged_copies': copy_stats['damaged'],
+        'lost_copies': copy_stats['lost'],
     }
     
     return render(request, 'edit_book.html', context)
 
 
 @admin_required
+@transaction.atomic
 def delete_book(request, book_id):
     """Admin endpoint to delete a book"""
     book = get_object_or_404(Book, BookID=book_id)
@@ -356,6 +395,7 @@ def delete_book(request, book_id):
 
 
 @admin_required
+@transaction.atomic
 def add_copies(request, book_id):
     """Admin endpoint to add more copies of a book and renumber all copies"""
     book = get_object_or_404(Book, BookID=book_id)
@@ -369,28 +409,17 @@ def add_copies(request, book_id):
             
             # Get all existing copies with their current state
             existing_copies = list(BookCopy.objects.filter(Book=book).order_by('CopyID'))
-            copy_data = []
-            
-            for copy in existing_copies:
-                copy_data.append({
-                    'status': copy.Status,
-                })
+            copy_data = [{'status': copy.Status} for copy in existing_copies]
             
             # Add data for new copies
-            for _ in range(num_copies):
-                copy_data.append({
-                    'status': 'Available',
-                })
+            copy_data.extend([{'status': 'Available'} for _ in range(num_copies)])
             
             # Delete all existing copies
             BookCopy.objects.filter(Book=book).delete()
             
-            # Recreate all copies in order (this will give them sequential CopyIDs)
-            for data in copy_data:
-                BookCopy.objects.create(
-                    Book=book,
-                    Status=data['status']
-                )
+            # Recreate all copies in order - use bulk_create for performance
+            new_copies = [BookCopy(Book=book, Status=data['status']) for data in copy_data]
+            BookCopy.objects.bulk_create(new_copies)
             
             messages.success(request, f'Successfully added {num_copies} cop{"y" if num_copies == 1 else "ies"} of "{book.Title}" and renumbered all copies.')
         except ValueError:
@@ -402,6 +431,7 @@ def add_copies(request, book_id):
 
 
 @admin_required
+@transaction.atomic
 def edit_copy(request, copy_id):
     """Admin endpoint to update a book copy's status"""
     copy = get_object_or_404(BookCopy, CopyID=copy_id)
@@ -529,7 +559,6 @@ def manage_genres(request):
     return render(request, 'manage_genres.html', context)
 
 
-
 @login_required
 def reservations(request):
     """Unified page for viewing reservations - shows user's own or all (admin)"""
@@ -537,7 +566,7 @@ def reservations(request):
     from Account.models import Account
     
     try:
-        account = Account.objects.get(UserID=user_id)
+        account = Account.objects.select_related('Role').get(UserID=user_id)
         is_admin = account.Role.RoleID == 2 if account.Role else False
     except Account.DoesNotExist:
         request.session.flush()
@@ -602,20 +631,57 @@ def reservations(request):
     else:
         reservations = reservations.order_by('-ReservationTime')
     
+    # Fetch all the reservations into a list first
+    reservations_list = list(reservations)
+    
+    # Collect all the user IDs and book IDs from the reservations
+    user_ids = set()
+    book_ids = set()
+    for res in reservations_list:
+        user_ids.add(res.User_id)
+        book_ids.add(res.Book_id)
+    
+    # Fetch all rentals for these users and books in one query
+    if user_ids and book_ids:
+        all_rentals = Rental.objects.filter(
+            User_id__in=user_ids,
+            Copy__Book_id__in=book_ids
+        ).select_related('Copy', 'Copy__Book').prefetch_related(
+            Prefetch(
+                'return_set',
+                queryset=Return.objects.all()
+            )
+        )
+        
+        # Build a lookup: (user_id, book_id) -> list of rentals
+        rentals_lookup = {}
+        for rental in all_rentals:
+            key = (rental.User_id, rental.Copy.Book_id)
+            if key not in rentals_lookup:
+                rentals_lookup[key] = []
+            rentals_lookup[key].append(rental)
+    else:
+        rentals_lookup = {}
+    
     # Build reservation data with phase information
     reservation_data = []
-    for reservation in reservations:
-        # Find if this reservation has a rental
-        # Only match rentals created AFTER this specific reservation was made
-        rental = Rental.objects.filter(
-            User=reservation.User,
-            Copy__Book=reservation.Book,
-            RentTime__gte=reservation.ReservationTime  # Rental must be after this reservation
-        ).select_related('Copy', 'Copy__Book').order_by('RentTime').first()  # Get the earliest rental after this reservation
+    now = timezone.now()
+    
+    for reservation in reservations_list:
+        # Find if this reservation has a rental (from our lookup - no query!)
+        rental = None
+        key = (reservation.User_id, reservation.Book_id)
+        candidate_rentals = rentals_lookup.get(key, [])
+        for r in candidate_rentals:
+            if r.RentTime >= reservation.ReservationTime:
+                rental = r
+                break
         
         return_record = None
         if rental:
-            return_record = Return.objects.filter(Rental=rental).first()
+            # Already prefetched - no query!
+            return_records = list(rental.return_set.all())
+            return_record = return_records[0] if return_records else None
         
         # Determine phase
         if reservation.Status == 'Cancelled':
@@ -632,8 +698,8 @@ def reservations(request):
             'rental': rental,
             'return_record': return_record,
             'phase': phase,
-            'is_overdue': rental and not return_record and timezone.now() > rental.DueDate if rental else False,
-            'is_expired': reservation.Status == 'Active' and timezone.now() > reservation.ExpiryTime,
+            'is_overdue': rental and not return_record and now > rental.DueDate if rental else False,
+            'is_expired': reservation.Status == 'Active' and now > reservation.ExpiryTime,
         })
     
     # Apply phase filter (after building phase data)
@@ -642,9 +708,9 @@ def reservations(request):
     
     # Apply due date sorting if requested (only for items with rentals)
     if sort_by == 'due_date':
-        reservation_data.sort(key=lambda x: x['rental'].DueDate if x['rental'] else timezone.now() + timedelta(days=365))
+        reservation_data.sort(key=lambda x: x['rental'].DueDate if x['rental'] else now + timedelta(days=365))
     elif sort_by == '-due_date':
-        reservation_data.sort(key=lambda x: x['rental'].DueDate if x['rental'] else timezone.now() - timedelta(days=365), reverse=True)
+        reservation_data.sort(key=lambda x: x['rental'].DueDate if x['rental'] else now - timedelta(days=365), reverse=True)
     
     context = {
         'reservation_data': reservation_data,
@@ -659,6 +725,7 @@ def reservations(request):
 
 
 @admin_required
+@transaction.atomic
 def issue_book(request, reservation_id):
     """Admin action to issue a book (move from Reserved to Rented phase)"""
     from Account.models import Account
@@ -666,26 +733,26 @@ def issue_book(request, reservation_id):
     user_id = request.session.get('user_id')
     admin = get_object_or_404(Account, UserID=user_id)
     
-    reservation = get_object_or_404(Reservation, ReservationID=reservation_id)
+    reservation = get_object_or_404(Reservation.objects.select_related('User', 'Book'), ReservationID=reservation_id)
     
     if reservation.Status != 'Active':
         messages.error(request, 'This reservation is not active.')
         return redirect('reservations')
     
-    # Check if already rented
+    # Check if already rented - use exists() for better performance
     existing_rental = Rental.objects.filter(
-    User=reservation.User,
-    Copy__Book=reservation.Book
+        User=reservation.User,
+        Copy__Book=reservation.Book
     ).exclude(
         return__isnull=False
-    ).first()
+    ).exists()
     
     if existing_rental:
         messages.warning(request, 'This book has already been issued.')
         return redirect('reservations')
     
-    # Find a reserved copy for this book
-    reserved_copy = BookCopy.objects.filter(
+    # Find a reserved copy for this book - use select_for_update to prevent race conditions
+    reserved_copy = BookCopy.objects.select_for_update().filter(
         Book=reservation.Book,
         Status='Reserved'
     ).first()
@@ -703,9 +770,13 @@ def issue_book(request, reservation_id):
         
         try:
             # Parse the due date
-            from datetime import datetime
             due_date = datetime.strptime(due_date_str, '%Y-%m-%d')
             due_date = timezone.make_aware(due_date.replace(hour=23, minute=59, second=59))
+            
+            # Validate due date is in the future
+            if due_date <= timezone.now():
+                messages.error(request, 'Due date must be in the future.')
+                return redirect('reservations')
             
             # Create rental
             Rental.objects.create(
@@ -721,6 +792,9 @@ def issue_book(request, reservation_id):
             
             messages.success(request, f'Successfully issued "{reservation.Book.Title}" to {reservation.User.FirstName} {reservation.User.LastName}.')
             return redirect('reservations')
+        except ValueError:
+            messages.error(request, 'Invalid date format.')
+            return redirect('reservations')
         except Exception as e:
             messages.error(request, f'Error issuing book: {str(e)}')
             return redirect('reservations')
@@ -735,6 +809,7 @@ def issue_book(request, reservation_id):
 
 
 @admin_required
+@transaction.atomic
 def process_return(request, rental_id):
     """Admin action to process a book return"""
     from Account.models import Account
@@ -742,9 +817,9 @@ def process_return(request, rental_id):
     user_id = request.session.get('user_id')
     admin = get_object_or_404(Account, UserID=user_id)
     
-    rental = get_object_or_404(Rental, RentalID=rental_id)
+    rental = get_object_or_404(Rental.objects.select_related('Copy', 'Copy__Book', 'User'), RentalID=rental_id)
     
-    # Check if already returned
+    # Check if already returned - use exists() for better performance
     if Return.objects.filter(Rental=rental).exists():
         messages.warning(request, 'This rental has already been returned.')
         return redirect('reservations')
@@ -775,25 +850,27 @@ def process_return(request, rental_id):
     messages.success(request, f'Successfully processed return for "{rental.Copy.Book.Title}".')
     return redirect('reservations')
 
+
 @admin_required
+@transaction.atomic
 def delete_reservation(request, reservation_id):
     """Admin action to delete a reservation (only if in Reserved phase)"""
-    reservation = get_object_or_404(Reservation, ReservationID=reservation_id)
+    reservation = get_object_or_404(Reservation.objects.select_related('Book', 'User'), ReservationID=reservation_id)
     
-    # Check if there's a rental for this reservation
-    rental = Rental.objects.filter(
+    # Check if there's a rental for this reservation - use exists() for better performance
+    rental_exists = Rental.objects.filter(
         User=reservation.User,
         Copy__Book=reservation.Book
     ).exclude(
         return__isnull=False
-    ).first()
+    ).exists()
     
-    if rental:
+    if rental_exists:
         messages.error(request, 'Cannot delete reservation: book has been issued. Process the return first.')
         return redirect('reservations')
     
-    # Free up the reserved copy
-    reserved_copy = BookCopy.objects.filter(
+    # Free up the reserved copy - use select_for_update to prevent race conditions
+    reserved_copy = BookCopy.objects.select_for_update().filter(
         Book=reservation.Book,
         Status='Reserved'
     ).first()
@@ -810,6 +887,7 @@ def delete_reservation(request, reservation_id):
 
 
 @admin_required
+@transaction.atomic
 def update_reservation_dates(request, reservation_id):
     """Admin action to update reservation or rental dates"""
     reservation = get_object_or_404(Reservation, ReservationID=reservation_id)
@@ -821,13 +899,14 @@ def update_reservation_dates(request, reservation_id):
             new_expiry = request.POST.get('expiry_time')
             if new_expiry:
                 try:
-                    from datetime import datetime
                     expiry_date = datetime.strptime(new_expiry, '%Y-%m-%d')
                     expiry_date = timezone.make_aware(expiry_date.replace(hour=23, minute=59, second=59))
                     
                     reservation.ExpiryTime = expiry_date
                     reservation.save()
                     messages.success(request, 'Reservation expiry date updated.')
+                except ValueError:
+                    messages.error(request, 'Invalid date format.')
                 except Exception as e:
                     messages.error(request, f'Error updating expiry date: {str(e)}')
         
@@ -841,13 +920,14 @@ def update_reservation_dates(request, reservation_id):
                 new_due_date = request.POST.get('due_date')
                 if new_due_date:
                     try:
-                        from datetime import datetime
                         due_date = datetime.strptime(new_due_date, '%Y-%m-%d')
                         due_date = timezone.make_aware(due_date.replace(hour=23, minute=59, second=59))
                         
                         rental.DueDate = due_date
                         rental.save()
                         messages.success(request, 'Rental due date updated.')
+                    except ValueError:
+                        messages.error(request, 'Invalid date format.')
                     except Exception as e:
                         messages.error(request, f'Error updating due date: {str(e)}')
     
@@ -868,15 +948,31 @@ def overdue(request):
         Status='Active',
         ExpiryTime__lt=now
     ).select_related('User', 'Book', 'Book__Author', 'Book__Genre')
-
-    for reservation in expired_reservations:
-        has_rental = Rental.objects.filter(
-            User=reservation.User,
-            Copy__Book=reservation.Book,
-            RentTime__gte=reservation.ReservationTime
-        ).exists()
-
-        if not has_rental:
+    
+    # Get list of expired reservations
+    expired_list = list(expired_reservations)
+    
+    # Collect user and book IDs
+    exp_user_ids = set(r.User_id for r in expired_list)
+    exp_book_ids = set(r.Book_id for r in expired_list)
+    
+    # Fetch all rentals for these users/books in one query
+    if exp_user_ids and exp_book_ids:
+        exp_rentals = Rental.objects.filter(
+            User_id__in=exp_user_ids,
+            Copy__Book_id__in=exp_book_ids
+        ).values_list('User_id', 'Copy__Book_id', 'RentTime')
+        
+        # Build a set of (user_id, book_id) that have rentals
+        has_rental_set = set((u, b) for u, b, rt in exp_rentals)
+    else:
+        has_rental_set = set()
+    
+    for reservation in expired_list:
+        key = (reservation.User_id, reservation.Book_id)
+        # Check if there's any rental for this user/book combination
+        # If it's in our set, skip it
+        if key not in has_rental_set:
             overdue_items.append({
                 'type': 'reservation',
                 'reservation': reservation,
@@ -892,16 +988,56 @@ def overdue(request):
         DueDate__lt=now
     ).select_related(
         'User', 'Copy', 'Copy__Book', 'Copy__Book__Author', 'Copy__Book__Genre'
+    ).prefetch_related(
+        Prefetch(
+            'return_set',
+            queryset=Return.objects.all()
+        )
     )
 
+    # Build a mapping of (user_id, book_id, rent_time) -> most recent reservation
+    rental_users_and_books = [
+        (rental.User.UserID, rental.Copy.Book.BookID, rental.RentTime) 
+        for rental in overdue_rentals
+    ]
+    
+    # Get all potentially related reservations in one query
+    reservation_lookup = {}
+    if rental_users_and_books:
+        user_ids = set(user_id for user_id, _, _ in rental_users_and_books)
+        book_ids = set(book_id for _, book_id, _ in rental_users_and_books)
+        
+        all_reservations = Reservation.objects.filter(
+            User_id__in=user_ids,
+            Book_id__in=book_ids
+        ).select_related('User', 'Book', 'Book__Author', 'Book__Genre')
+        
+        # Build lookup: (user_id, book_id, rent_time) -> reservation
+        for user_id, book_id, rent_time in rental_users_and_books:
+            # Find the most recent reservation before this rental
+            matching = [
+                res for res in all_reservations 
+                if res.User_id == user_id 
+                and res.Book_id == book_id 
+                and res.ReservationTime <= rent_time
+            ]
+            if matching:
+                # Get the most recent one
+                reservation_lookup[(user_id, book_id, rent_time)] = max(
+                    matching, 
+                    key=lambda r: r.ReservationTime
+                )
+
     for rental in overdue_rentals:
-        has_return = Return.objects.filter(Rental=rental).exists()
+        # Check if there's a return (already prefetched - no query!)
+        return_records = list(rental.return_set.all())
+        has_return = len(return_records) > 0
+        
         if not has_return:
-            reservation = Reservation.objects.filter(
-                User=rental.User,
-                Book=rental.Copy.Book,
-                ReservationTime__lte=rental.RentTime
-            ).order_by('-ReservationTime').first()
+            # Get the associated reservation from our lookup (no query!)
+            reservation = reservation_lookup.get(
+                (rental.User.UserID, rental.Copy.Book.BookID, rental.RentTime)
+            )
 
             overdue_items.append({
                 'type': 'rental',

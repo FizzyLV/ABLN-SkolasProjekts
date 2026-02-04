@@ -146,7 +146,7 @@ def update_account(request):
     if 'account' not in context:
         context['account'] = account
     
-    return render(request, 'update_account.html', context)
+    return render(request, 'settings.html', context)
 
 
 @login_required
@@ -198,7 +198,7 @@ def change_password(request):
         else:
             context['errors'] = errors
     
-    return render(request, 'change_password.html', context)
+    return render(request, 'settings.html', context)
 
 
 @login_required

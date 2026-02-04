@@ -47,16 +47,6 @@
                 </div>
 
                 <div class="filters">
-                    {% if is_admin %}
-                    <div class="filter-group">
-                        <label class="filter-label">Status</label>
-                        <select name="status" class="filter-select" onchange="this.form.submit()">
-                            <option value="">All Statuses</option>
-                            <option value="Active" {% if status_filter == "Active" %}selected{% endif %}>Active</option>
-                            <option value="Cancelled" {% if status_filter == "Cancelled" %}selected{% endif %}>Cancelled</option>
-                        </select>
-                    </div>
-                    {% else %}
                     <div class="filter-group">
                         <label class="filter-label">Status</label>
                         <select name="status" class="filter-select" onchange="this.form.submit()">
@@ -91,7 +81,6 @@
                             <option value="-due_date" {% if sort_by == "-due_date" %}selected{% endif %}>Due Date (Latest)</option>
                         </select>
                     </div>
-                    {% endif %}
 
                     {% if search_query or status_filter or phase_filter or sort_by != '-reservation_time' %}
                     <a href="{% url 'reservations' %}" class="clear-filters">Clear Filters</a>
@@ -272,7 +261,6 @@
                 {% endfor %}
             {% else %}
                 <div class="no-results">
-                    <div class="no-results-icon">📚</div>
                     <h2 class="no-results-title">No reservations found</h2>
                     <p class="no-results-text">
                         {% if is_admin %}
